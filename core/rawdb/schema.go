@@ -20,6 +20,7 @@ package rawdb
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -129,6 +130,124 @@ type LegacyTxLookupEntry struct {
 	BlockHash  common.Hash
 	BlockIndex uint64
 	Index      uint64
+}
+
+type KeyType int
+
+const (
+	KeyHeader KeyType = iota
+	KeyHeaderNumber
+	KeyTxn
+	KeySnapshot
+	KeySnapshotAccount
+	KeySnapshotStorage
+	KeyBody
+	KeyReceipts
+	KeyTotalDifficulty
+	KeyCanonicalHash
+)
+
+type PK struct {
+	Type        KeyType
+	Number      uint64
+	Hash        []byte
+	StorageHash []byte
+}
+
+func ParseKey(key []byte) *PK {
+	if len(key) == 0 {
+		panic("invalid key")
+	}
+
+	pk := new(PK)
+	parseHash := func(key []byte) {
+		if len(key) < 32 {
+			panic("failed parse key")
+		}
+		pk.Hash = append(pk.Hash, key[:32]...)
+	}
+	parseStorageHash := func(key []byte) {
+		if len(key) < 32 {
+			panic("failed parse key 2")
+		}
+		pk.Hash = append(pk.Hash, key[:32]...)
+	}
+
+	var sz int
+	switch {
+	case bytes.HasPrefix(key, headerNumberPrefix):
+		pk.Type = KeyHeaderNumber
+		sz += len(headerNumberPrefix)
+
+		parseHash(key[sz:])
+		return pk
+
+	case bytes.HasPrefix(key, txLookupPrefix):
+		pk.Type = KeyTxn
+		sz += len(txLookupPrefix)
+		parseHash(key[sz:])
+		return pk
+
+	case bytes.HasPrefix(key, SnapshotAccountPrefix):
+		pk.Type = KeySnapshotAccount
+		sz += len(SnapshotAccountPrefix)
+		parseHash(key[sz:])
+		return pk
+
+	case bytes.HasPrefix(key, SnapshotStoragePrefix):
+		pk.Type = KeySnapshotStorage
+		sz += len(SnapshotStoragePrefix)
+		parseHash(key[sz:])
+		sz += 32
+		if len(key[sz:]) > 0 {
+			parseStorageHash(key[sz:])
+			sz += 32
+			if len(key[sz:]) != 0 {
+				panic("didn't expect anything more")
+			}
+		}
+		return pk
+	}
+
+	// The cases in this switch continue parsing post the switch-case.
+	// These keys have both the block number and the hash.
+	switch {
+	case bytes.HasPrefix(key, headerPrefix):
+		pk.Type = KeyHeader
+		sz += len(headerPrefix)
+
+	case bytes.HasPrefix(key, blockBodyPrefix):
+		pk.Type = KeyBody
+		sz += len(blockBodyPrefix)
+
+	case bytes.HasPrefix(key, blockReceiptsPrefix):
+		pk.Type = KeyReceipts
+		sz += len(blockReceiptsPrefix)
+
+	default:
+		panic(fmt.Sprintf("unable to parse key: %x", key))
+	}
+
+	// headerPrefix + num (uint64 big endian) + hash -> header
+	sz += len(headerPrefix)
+	pk.Number = binary.BigEndian.Uint64(key[sz:])
+	sz += 8
+	if len(key) == sz {
+		return pk
+	}
+	if len(key) == sz+len(headerHashSuffix) && bytes.Equal(key[sz:], headerHashSuffix) {
+		pk.Type = KeyCanonicalHash
+		return pk
+	}
+
+	parseHash(key[sz:])
+	sz += 32
+
+	if bytes.HasPrefix(key[sz:], headerTDSuffix) {
+		pk.Type = KeyTotalDifficulty
+		sz += len(headerTDSuffix)
+	}
+	return pk
 }
 
 // encodeBlockNumber encodes a block number as big endian uint64
