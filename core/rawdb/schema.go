@@ -20,6 +20,7 @@ package rawdb
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -132,43 +133,25 @@ type LegacyTxLookupEntry struct {
 	Index      uint64
 }
 
-type KeyType int
-
-const (
-	KeyHeader KeyType = iota
-	KeyHeaderNumber
-	KeyTxn
-	KeySnapshot
-	KeySnapshotAccount
-	KeySnapshotStorage
-	KeyBody
-	KeyReceipts
-	KeyTotalDifficulty
-	KeyCanonicalHash
-)
-
-type PK struct {
-	Type        KeyType
-	Number      uint64
-	Hash        []byte
-	StorageHash []byte
+func init() {
+	common.ParseKey = parseKey
 }
 
-func ParseKey(key []byte) *PK {
+func parseKey(key []byte) *common.PK {
 	if len(key) == 0 {
 		panic("invalid key")
 	}
 
-	pk := new(PK)
+	pk := new(common.PK)
 	parseHash := func(key []byte) {
 		if len(key) < 32 {
-			panic("failed parse key")
+			panic(fmt.Sprintf("failed parse key: %s", hex.Dump(key)))
 		}
 		pk.Hash = append(pk.Hash, key[:32]...)
 	}
 	parseStorageHash := func(key []byte) {
 		if len(key) < 32 {
-			panic("failed parse key 2")
+			panic(fmt.Sprintf("failed parse key 2: %s", hex.Dump(key)))
 		}
 		pk.Hash = append(pk.Hash, key[:32]...)
 	}
@@ -176,26 +159,26 @@ func ParseKey(key []byte) *PK {
 	var sz int
 	switch {
 	case bytes.HasPrefix(key, headerNumberPrefix):
-		pk.Type = KeyHeaderNumber
+		pk.Type = common.KeyHeaderNumber
 		sz += len(headerNumberPrefix)
 
 		parseHash(key[sz:])
 		return pk
 
 	case bytes.HasPrefix(key, txLookupPrefix):
-		pk.Type = KeyTxn
+		pk.Type = common.KeyTxn
 		sz += len(txLookupPrefix)
 		parseHash(key[sz:])
 		return pk
 
 	case bytes.HasPrefix(key, SnapshotAccountPrefix):
-		pk.Type = KeySnapshotAccount
+		pk.Type = common.KeySnapshotAccount
 		sz += len(SnapshotAccountPrefix)
 		parseHash(key[sz:])
 		return pk
 
 	case bytes.HasPrefix(key, SnapshotStoragePrefix):
-		pk.Type = KeySnapshotStorage
+		pk.Type = common.KeySnapshotStorage
 		sz += len(SnapshotStoragePrefix)
 		parseHash(key[sz:])
 		sz += 32
@@ -213,30 +196,35 @@ func ParseKey(key []byte) *PK {
 	// These keys have both the block number and the hash.
 	switch {
 	case bytes.HasPrefix(key, headerPrefix):
-		pk.Type = KeyHeader
+		pk.Type = common.KeyHeader
 		sz += len(headerPrefix)
 
 	case bytes.HasPrefix(key, blockBodyPrefix):
-		pk.Type = KeyBody
+		pk.Type = common.KeyBody
 		sz += len(blockBodyPrefix)
 
 	case bytes.HasPrefix(key, blockReceiptsPrefix):
-		pk.Type = KeyReceipts
+		pk.Type = common.KeyReceipts
 		sz += len(blockReceiptsPrefix)
 
+	case bytes.HasPrefix(key, skeletonHeaderPrefix) && !bytes.Equal(key, skeletonSyncStatusKey) &&
+		!bytes.HasPrefix(key, []byte("Snapshot")):
+		pk.Type = common.KeySkeleton
+		sz += len(skeletonHeaderPrefix)
+
 	default:
-		panic(fmt.Sprintf("unable to parse key: %x", key))
+		pk.Type = common.KeyUnableToParse
+		pk.KeyStr = hex.Dump(key)
+		return pk
 	}
 
-	// headerPrefix + num (uint64 big endian) + hash -> header
-	sz += len(headerPrefix)
 	pk.Number = binary.BigEndian.Uint64(key[sz:])
 	sz += 8
 	if len(key) == sz {
 		return pk
 	}
 	if len(key) == sz+len(headerHashSuffix) && bytes.Equal(key[sz:], headerHashSuffix) {
-		pk.Type = KeyCanonicalHash
+		pk.Type = common.KeyCanonicalHash
 		return pk
 	}
 
@@ -244,7 +232,7 @@ func ParseKey(key []byte) *PK {
 	sz += 32
 
 	if bytes.HasPrefix(key[sz:], headerTDSuffix) {
-		pk.Type = KeyTotalDifficulty
+		pk.Type = common.KeyTotalDifficulty
 		sz += len(headerTDSuffix)
 	}
 	return pk

@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -196,21 +197,31 @@ func (db *Database) Get(key []byte) ([]byte, error) {
 
 // Put inserts the given value into the key-value store.
 func (db *Database) Put(key []byte, value []byte) error {
+	pk := common.ParseKey(key)
+	fmt.Printf("PK DB.Put: %+v\n", pk)
+
 	return db.db.Put(key, value, nil)
 }
 
 // Delete removes the key from the key-value store.
 func (db *Database) Delete(key []byte) error {
+	pk := common.ParseKey(key)
+	fmt.Printf("PK DB.Delete: %+v\n", pk)
+
 	return db.db.Delete(key, nil)
 }
+
+var batchId uint64
 
 // NewBatch creates a write-only key-value store that buffers changes to its host
 // database until a final write is called.
 func (db *Database) NewBatch() ethdb.Batch {
-	return &batch{
+	bch := &batch{
 		db: db.db,
 		b:  new(leveldb.Batch),
 	}
+	bch.id = atomic.AddUint64(&batchId, 1)
+	return bch
 }
 
 // NewBatchWithSize creates a write-only database batch with pre-allocated buffer.
@@ -472,10 +483,14 @@ type batch struct {
 	db   *leveldb.DB
 	b    *leveldb.Batch
 	size int
+	id   uint64
 }
 
 // Put inserts the given value into the batch for later committing.
 func (b *batch) Put(key, value []byte) error {
+	pk := common.ParseKey(key)
+	fmt.Printf("PK Batch.PUT %d | %s | %+v | len(val): %d\n", b.id, pk.Type, pk, len(value))
+
 	b.b.Put(key, value)
 	b.size += len(key) + len(value)
 	return nil
@@ -483,6 +498,9 @@ func (b *batch) Put(key, value []byte) error {
 
 // Delete inserts the a key removal into the batch for later committing.
 func (b *batch) Delete(key []byte) error {
+	pk := common.ParseKey(key)
+	fmt.Printf("PK Batch.Delete %d | %+v\n", b.id, pk)
+
 	b.b.Delete(key)
 	b.size += len(key)
 	return nil
