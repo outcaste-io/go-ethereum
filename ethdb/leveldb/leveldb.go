@@ -198,7 +198,7 @@ func (db *Database) Get(key []byte) ([]byte, error) {
 // Put inserts the given value into the key-value store.
 func (db *Database) Put(key []byte, value []byte) error {
 	pk := common.ParseKey(key)
-	fmt.Printf("PK DB.Put: %+v\n", pk)
+	fmt.Printf("LevelDB.Put: %+v\n", pk)
 
 	return db.db.Put(key, value, nil)
 }
@@ -206,7 +206,7 @@ func (db *Database) Put(key []byte, value []byte) error {
 // Delete removes the key from the key-value store.
 func (db *Database) Delete(key []byte) error {
 	pk := common.ParseKey(key)
-	fmt.Printf("PK DB.Delete: %+v\n", pk)
+	fmt.Printf("LevelDB.Delete: %+v\n", pk)
 
 	return db.db.Delete(key, nil)
 }

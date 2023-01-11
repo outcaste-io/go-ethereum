@@ -724,7 +724,8 @@ func (n *Node) OpenDatabaseWithFreezer(name string, cache, handles int, ancient 
 		db = rawdb.NewMemoryDatabase()
 	} else {
 		// db, err = rawdb.NewLevelDBDatabaseWithFreezer(n.ResolvePath(name), cache, handles, n.ResolveAncient(name, ancient), namespace, readonly)
-		db, err = rawdb.NewLevelDBDatabase(n.ResolvePath(name), cache, handles, namespace, readonly)
+		// db, err = rawdb.NewLevelDBDatabase(n.ResolvePath(name), cache, handles, namespace, readonly)
+		db, err = rawdb.NewFastDatabase(n.ResolvePath(name))
 	}
 
 	if err == nil {

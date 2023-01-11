@@ -27,6 +27,7 @@ type Fast struct {
 }
 
 func NewFastDB(path string) *Fast {
+	fmt.Printf("opening new fast DB at: %s\n", path)
 	opt := badger.DefaultOptions(path).WithNumVersionsToKeep(math.MaxInt64)
 	db, err := badger.Open(opt)
 	x.Check(err)
@@ -44,6 +45,53 @@ func (f *Fast) Close() error {
 	return err2
 }
 
+func (f *Fast) Compact(start []byte, limit []byte) error        { return nil }
+func (f *Fast) Delete(key []byte) error                         { panic("don't expect delete") }
+func (f *Fast) Has(key []byte) (bool, error)                    { panic("don't expect has") }
+func (f *Fast) NewBatchWithSize(size int) ethdb.Batch           { return f.NewBatch() }
+func (f *Fast) NewIterator(prefix, start []byte) ethdb.Iterator { return nil }
+func (f *Fast) NewSnapshot() (ethdb.Snapshot, error)            { panic("dont' support this yet") }
+func (f *Fast) Stat(property string) (string, error) {
+	return "", errors.New("unknown property")
+}
+
+func (f *Fast) Put(key, val []byte) error {
+	pk := common.ParseKey(key)
+	fmt.Printf("Fast.Put: %+v | val: %d\n", pk, len(val))
+
+	batch := f.db.NewWriteBatch()
+	if err := batch.SetAt(key, val, 1); err != nil {
+		return err
+	}
+	return batch.Flush()
+}
+
+func (f *Fast) Get(key []byte) ([]byte, error) {
+	pk := common.ParseKey(key)
+	fmt.Printf("Fast.Get: %+v\n", pk)
+
+	switch pk.Type {
+	case common.KeyBody, common.KeyHeader, common.KeyReceipts, common.KeyTotalDifficulty:
+		fmt.Printf("PK: %+v | returning nil\n", pk)
+		return nil, fmt.Errorf("not found")
+	default:
+		var ret []byte
+		err := f.db.View(func(txn *badger.Txn) error {
+			item, err := txn.Get(key)
+			if err != nil {
+				return err
+			}
+			val, err := item.ValueCopy(nil)
+			if err != nil {
+				return err
+			}
+			ret = val
+			return nil
+		})
+		return ret, err
+	}
+}
+
 var batchId uint64
 
 // NewBatch creates a write-only key-value store that buffers changes to its host
@@ -51,8 +99,10 @@ var batchId uint64
 func (fast *Fast) NewBatch() ethdb.Batch {
 	bch := &batch{
 		fast: fast,
+		b:    fast.db.NewWriteBatch(),
 	}
 	bch.id = atomic.AddUint64(&batchId, 1)
+	fmt.Printf("Created a new batch of id: %d\n", bch.id)
 	return bch
 }
 
@@ -137,7 +187,10 @@ func (b Block) ToSerBlock() SerBlock {
 	return SerBlock(buf.Bytes())
 }
 
-func (b Block) Valid() bool {
+func (b *Block) Valid() bool {
+	if b == nil {
+		return false
+	}
 	for i := 0; i < len(b.parts); i++ {
 		if len(b.parts[i]) == 0 {
 			return false
@@ -146,20 +199,33 @@ func (b Block) Valid() bool {
 	return true
 }
 
+var diskIndex uint64
+
+func (b *Block) ToDisk(fast *Fast, idx uint64) error {
+	sb := b.ToSerBlock()
+	entry := store.Entry{Index: idx, Meta: 0, Number: b.number, Hash: b.hash, Data: sb}
+	return fast.st.Save([]store.Entry{entry})
+}
+
 // batch is a write-only leveldb batch that commits changes to its host database
 // when Write is called. A batch cannot be used concurrently.
 type batch struct {
 	fast   *Fast
 	b      *badger.WriteBatch
 	blocks map[uint64]*Block
-	size   int
 	id     uint64
 }
 
 // Put inserts the given value into the batch for later committing.
 func (b *batch) Put(key, value []byte) error {
 	pk := common.ParseKey(key)
-	fmt.Printf("PK Batch.PUT %d | %s | %+v | len(val): %d\n", b.id, pk.Type, pk, len(value))
+	fmt.Printf("Fast Batch.PUT %d | %s | %+v | len(val): %d\n", b.id, pk.Type, pk, len(value))
+	if pk.Type == common.KeyReceipts && pk.Number == 0 {
+		panic("didn't expect Number to be zero")
+	}
+	if pk.Type < common.KeyOther && pk.Number == 0 {
+		panic("didn't expect Number to be zero here")
+	}
 
 	var block *Block
 	// We don't parse all the keys. In that case, number might be zero. And
@@ -180,8 +246,6 @@ func (b *batch) Put(key, value []byte) error {
 		block.parts[IdxBody] = value
 	case common.KeyHeader:
 		block.parts[IdxHeader] = value
-	case common.KeyCanonicalHash:
-		block.canonicalHash = value
 	case common.KeyReceipts:
 		block.parts[IdxReceipts] = value
 	case common.KeyTotalDifficulty:
@@ -191,28 +255,32 @@ func (b *batch) Put(key, value []byte) error {
 			return errors.Wrapf(err, "while writing to Badger")
 		}
 	}
-
-	b.size += len(key) + len(value)
+	fmt.Printf("block: %+v | valid: %v\n", block, block.Valid())
+	if block.Valid() {
+		block.number = pk.Number
+		index := atomic.AddUint64(&diskIndex, 1)
+		x.Check(block.ToDisk(b.fast, index))
+		fmt.Printf("Written block to disk at %d | block: %+v\n", index, block)
+	}
 	return nil
 }
 
 // Delete inserts the a key removal into the batch for later committing.
 func (b *batch) Delete(key []byte) error {
 	pk := common.ParseKey(key)
-	fmt.Printf("PK Batch.Delete %d | %+v\n", b.id, pk)
+	fmt.Printf("Fast Batch.Delete %d | %+v\n", b.id, pk)
 	if pk.Type >= common.KeyOther {
 		if err := b.b.DeleteAt(key, 1); err != nil {
 			return errors.Wrapf(err, "while writing to Badger")
 		}
 	}
 
-	b.size += len(key)
 	return nil
 }
 
 // ValueSize retrieves the amount of data queued up for writing.
 func (b *batch) ValueSize() int {
-	return b.size
+	return 1 // Return a non-zero value, so we can determine the best way to flush the writes.
 }
 
 // Write flushes any accumulated data to disk.
@@ -232,13 +300,13 @@ func (b *batch) Write() error {
 // Reset resets the batch for reuse.
 func (b *batch) Reset() {
 	b.b = b.fast.db.NewWriteBatch()
-	b.size = 0
 	b.id = atomic.AddUint64(&batchId, 1)
+	fmt.Printf("Reset batch for id: %d\n", b.id)
 }
 
 // Replay replays the batch contents.
 func (b *batch) Replay(w ethdb.KeyValueWriter) error {
-	panic("replay")
+	// TODO: Figure out if we need this.
 	return nil
 }
 

@@ -28,6 +28,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/ethdb/fastdb"
 	"github.com/ethereum/go-ethereum/ethdb/leveldb"
 	"github.com/ethereum/go-ethereum/ethdb/memorydb"
 	"github.com/ethereum/go-ethereum/log"
@@ -302,6 +303,11 @@ func NewLevelDBDatabase(file string, cache int, handles int, namespace string, r
 	if err != nil {
 		return nil, err
 	}
+	return NewDatabase(db), nil
+}
+
+func NewFastDatabase(file string) (ethdb.Database, error) {
+	db := fastdb.NewFastDB(file)
 	return NewDatabase(db), nil
 }
 

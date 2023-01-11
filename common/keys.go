@@ -3,12 +3,13 @@ package common
 type KeyType int
 
 func (kt KeyType) String() string {
-	all := []string{"KeyHeader", "KeyHeaderNumber", "KeyTxn", "KeySnapshot",
-		"KeySnapshotAccount", "KeySnapshotStorage", "KeyBody", "KeyReceipts",
-		"KeySkeleton", "KeyTotalDifficulty", "KeyCanonicalHash", "KeyUnableToParse"}
+	all := []string{"KeyHeader", "KeyHeaderNumber", "KeyTxn", "KeyBody",
+		"KeyReceipts", "KeyTotalDifficulty", "KeyCanonicalHash", "KeyOther",
+		"KeySnapshot", "KeySnapshotAccount", "KeySnapshotStorage", "KeySkeleton"}
 	return all[int(kt)]
 }
 
+// Please keep KeyType.String function insync with this.
 const (
 	KeyHeader KeyType = iota
 	KeyHeaderNumber
