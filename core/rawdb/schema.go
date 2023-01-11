@@ -143,15 +143,22 @@ func parseKey(key []byte) *common.PK {
 	}
 
 	pk := new(common.PK)
+	if len(key) == 32 {
+		// It's just a hash with no prefix, probably coming from WriteTrieNode. Fun, fun!
+		pk.Type = common.KeyOther
+		pk.KeyStr = hex.Dump(key)
+		return pk
+	}
+
 	parseHash := func(key []byte) {
 		if len(key) < 32 {
-			panic(fmt.Sprintf("failed parse key: %s", hex.Dump(key)))
+			panic(fmt.Sprintf("failed parse key: %s | %+v", hex.Dump(key), pk))
 		}
 		pk.Hash = append(pk.Hash, key[:32]...)
 	}
 	parseStorageHash := func(key []byte) {
 		if len(key) < 32 {
-			panic(fmt.Sprintf("failed parse key 2: %s", hex.Dump(key)))
+			panic(fmt.Sprintf("failed parse key 2: %s | %+v", hex.Dump(key), pk))
 		}
 		pk.Hash = append(pk.Hash, key[:32]...)
 	}
@@ -213,7 +220,7 @@ func parseKey(key []byte) *common.PK {
 		sz += len(skeletonHeaderPrefix)
 
 	default:
-		pk.Type = common.KeyUnableToParse
+		pk.Type = common.KeyOther
 		pk.KeyStr = hex.Dump(key)
 		return pk
 	}

@@ -13,15 +13,15 @@ const (
 	KeyHeader KeyType = iota
 	KeyHeaderNumber
 	KeyTxn
-	KeySnapshot
-	KeySnapshotAccount
-	KeySnapshotStorage // 5
 	KeyBody
 	KeyReceipts
-	KeySkeleton
 	KeyTotalDifficulty
-	KeyCanonicalHash // 10
-	KeyUnableToParse
+	KeyCanonicalHash
+	KeyOther // Act as a divider for keys which aren't being processed to storage.
+	KeySnapshot
+	KeySnapshotAccount
+	KeySnapshotStorage
+	KeySkeleton
 )
 
 type PK struct {

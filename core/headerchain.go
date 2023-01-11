@@ -580,7 +580,7 @@ func (hc *HeaderChain) SetHeadWithTimestamp(time uint64, updateFn UpdateHeadBloc
 func (hc *HeaderChain) setHead(headBlock uint64, headTime uint64, updateFn UpdateHeadBlocksCallback, delFn DeleteBlockContentCallback) {
 	// Sanity check that there's no attempt to undo the genesis block. This is
 	// a fairly synthetic case where someone enables a timestamp based fork
-	// below the genesis timestamp. It's nice to not allow that instead of the
+	// below the geneis timestamp. It's nice to not allow that instead of the
 	// entire chain getting deleted.
 	if headTime > 0 && hc.genesisHeader.Time > headTime {
 		// Note, a critical error is quite brutal, but we should really not reach
